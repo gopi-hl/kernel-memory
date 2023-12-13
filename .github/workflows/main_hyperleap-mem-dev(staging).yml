@@ -60,4 +60,4 @@ jobs:
           app-name: 'hyperleap-mem-dev'
           slot-name: 'staging'
           package: .
-          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_83E2E0F0A7444D889C08E0471F2E85B7 }}
+          publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_E20FB0EB87AE43F292EA5A3F298DEBEE }}
