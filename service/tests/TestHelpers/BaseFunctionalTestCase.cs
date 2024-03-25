@@ -6,6 +6,7 @@ using Microsoft.KernelMemory;
 using Microsoft.KernelMemory.ContentStorage.DevTools;
 using Microsoft.KernelMemory.FileSystem.DevTools;
 using Microsoft.KernelMemory.MemoryStorage.DevTools;
+using Microsoft.KernelMemory.MongoDbAtlas;
 using Xunit.Abstractions;
 
 namespace Microsoft.TestHelpers;
@@ -24,6 +25,7 @@ public abstract class BaseFunctionalTestCase : IDisposable
     protected readonly QdrantConfig QdrantConfig;
     protected readonly PostgresConfig PostgresConfig;
     protected readonly RedisConfig RedisConfig;
+    protected readonly MongoDbAtlasConfig MongoDbAtlasConfig;
     protected readonly SimpleVectorDbConfig SimpleVectorDbConfig;
     protected readonly LlamaSharpConfig LlamaSharpConfig;
 
@@ -34,21 +36,22 @@ public abstract class BaseFunctionalTestCase : IDisposable
         this._output = new RedirectConsole(output);
         Console.SetOut(this._output);
 
-        this.OpenAiConfig = cfg.GetSection("Services:OpenAI").Get<OpenAIConfig>() ?? new();
-        this.AzureOpenAITextConfiguration = cfg.GetSection("Services:AzureOpenAIText").Get<AzureOpenAIConfig>() ?? new();
-        this.AzureOpenAIEmbeddingConfiguration = cfg.GetSection("Services:AzureOpenAIEmbedding").Get<AzureOpenAIConfig>() ?? new();
-        this.AzureAiSearchConfig = cfg.GetSection("Services:AzureAISearch").Get<AzureAISearchConfig>() ?? new();
-        this.QdrantConfig = cfg.GetSection("Services:Qdrant").Get<QdrantConfig>() ?? new();
-        this.PostgresConfig = cfg.GetSection("Services:Postgres").Get<PostgresConfig>() ?? new();
-        this.RedisConfig = cfg.GetSection("Services:Redis").Get<RedisConfig>() ?? new();
-        this.SimpleVectorDbConfig = cfg.GetSection("Services:SimpleVectorDb").Get<SimpleVectorDbConfig>() ?? new();
-        this.LlamaSharpConfig = cfg.GetSection("Services:LlamaSharp").Get<LlamaSharpConfig>() ?? new();
+        this.OpenAiConfig = cfg.GetSection("KernelMemory:Services:OpenAI").Get<OpenAIConfig>() ?? new();
+        this.AzureOpenAITextConfiguration = cfg.GetSection("KernelMemory:Services:AzureOpenAIText").Get<AzureOpenAIConfig>() ?? new();
+        this.AzureOpenAIEmbeddingConfiguration = cfg.GetSection("KernelMemory:Services:AzureOpenAIEmbedding").Get<AzureOpenAIConfig>() ?? new();
+        this.AzureAiSearchConfig = cfg.GetSection("KernelMemory:Services:AzureAISearch").Get<AzureAISearchConfig>() ?? new();
+        this.QdrantConfig = cfg.GetSection("KernelMemory:Services:Qdrant").Get<QdrantConfig>() ?? new();
+        this.PostgresConfig = cfg.GetSection("KernelMemory:Services:Postgres").Get<PostgresConfig>() ?? new();
+        this.RedisConfig = cfg.GetSection("KernelMemory:Services:Redis").Get<RedisConfig>() ?? new();
+        this.MongoDbAtlasConfig = cfg.GetSection("KernelMemory:Services:MongoDbAtlas").Get<MongoDbAtlasConfig>() ?? new();
+        this.SimpleVectorDbConfig = cfg.GetSection("KernelMemory:Services:SimpleVectorDb").Get<SimpleVectorDbConfig>() ?? new();
+        this.LlamaSharpConfig = cfg.GetSection("KernelMemory:Services:LlamaSharp").Get<LlamaSharpConfig>() ?? new();
     }
 
     protected IKernelMemory GetMemoryWebClient()
     {
-        string endpoint = this._cfg.GetSection("ServiceAuthorization").GetValue<string>("Endpoint", "http://127.0.0.1:9001/")!;
-        string? apiKey = this._cfg.GetSection("ServiceAuthorization").GetValue<string>("AccessKey");
+        string endpoint = this._cfg.GetSection("KernelMemory:ServiceAuthorization").GetValue<string>("Endpoint", "http://127.0.0.1:9001/")!;
+        string? apiKey = this._cfg.GetSection("KernelMemory:ServiceAuthorization").GetValue<string>("AccessKey");
         return new MemoryWebClient(endpoint, apiKey: apiKey);
     }
 
