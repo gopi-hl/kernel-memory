@@ -2,6 +2,7 @@ KernelMemoryDev.*
 
 dotnet/.config
 tmp/
+_tmp/
 tmp-*/
 out/
 _files/
@@ -425,10 +426,15 @@ FodyWeavers.xsd
 
 .env
 certs/
+
+# to make sure we don't commit local settings which might contain credentials
 launchSettings.json
+*launchSettings.json*
 config.development.yaml
 *.development.config
 *.development.json
+appsettings.*.json
+
 .DS_Store
 .idea/
 node_modules/
