@@ -58,9 +58,11 @@ Configuration settings can be saved in multiple places, each source can also ove
 2. `appsettings.Development.json`: this is used only when the environment variable `ASPNETCORE_ENVIRONMENT` is set to `Development`.
 3. `appsettings.Production.json`: this is used only when the environment variable `ASPNETCORE_ENVIRONMENT` is set to `Production`.
 4. [.NET Secret Manager](https://learn.microsoft.com/aspnet/core/security/app-secrets#secret-manager)
-5. using **env vars**: preferred method for credentials. Any setting in  appsettings.json can be overridden by env vars.
-   The env var name corresponds to the configuration key name, using `__` (double underscore) as a separator instead of `:`.
-   For instance `Logging:LogLevel:Default` is set with `Logging__LogLevel__Default`.
+5. using **env vars**: preferred method for credentials. Any setting in appsettings.json can be overridden by env vars.
+   The env var name corresponds to the configuration key name, using `__` (double underscore) as a separator instead of `:`. For instance:
+   - `Logging:LogLevel:Default` is set with `Logging__LogLevel__Default`.
+   - `KernelMemory:DataIngestion:EmbeddingGeneratorTypes` is an array and for setting its first value use `KernelMemory__DataIngestion__EmbeddingGeneratorTypes__0`.
+     If the array contains 2 elements the second would be `__1`, and so on.
 
 # ▶️ Start the service from source
 
@@ -87,19 +89,25 @@ env var, so the code will use the settings stored in `appsettings.Development.js
 
 The service depends on three main components:
 
-* **Content storage**: this is where content like files, chats, emails are
-  saved and transformed when uploaded. Currently, the solution supports Azure Blobs,
-  local filesystem and in-memory volatile filesystem.
+- **Document storage**: this is where the application stores files, chats, emails,
+  cache, async job status, and temporary files used during the memory ingestion.
+  The solution supports Azure Blobs, local filesystem, MongoDb, and in-memory
+  volatile filesystem. The volatile file system is used by default, but should be
+  avoided in Production and used only for demos and tests.
 
+- **Memory storage**: service used to persist embeddings and memory records.
+  The service supports **Azure AI Search**, **Postgres**, **Qdrant**, **Redis**,
+  **SQL Server** and other engines, plus a very basic in memory vector storage
+  with support for persistence on disk called **SimpleVectorDb**.
+  Unless configured differently, KM uses SimpleVectorDb storing data in memory only.
 
-* **Embedding generator**: all the documents uploaded are automatically
+- **Embedding generator**: all the documents uploaded are automatically
   partitioned (aka "chunked") and indexed for vector search, generating
   several embedding vectors for each file. We recommend using
   [OpenAI ADA v2](https://platform.openai.com/docs/guides/embeddings/what-are-embeddings)
   model, though you can easily plug in any embedding generator if needed.
 
-
-* **Text generator** (aka LLM): during document ingestion and when asking
+- **Text generator** (aka LLM): during document ingestion and when asking
   questions, the service requires an LLM to execute prompts, e.g. to
   generate synthetic data, and to generate answers. The service has
   been tested with OpenAI
@@ -108,15 +116,7 @@ The service depends on three main components:
   factor affecting summarization and answer generations, so you might
   get better results with 16k, 32k and bigger models.
 
-
-* **Vector storage**: service used to persist embeddings. The
-  service supports **Azure AI Search**, **Qdrant**, **Redis** and other engines,
-  plus  a very basic in memory vector storage with support for persistence on disk
-  called **SimpleVectorDb**. Unless configured differently, KM uses SimpleVectorDb
-  storing data in memory only.
-
-
-* **Data ingestion orchestration**: this can run in memory and in the same
+- **Data ingestion orchestration**: this can run in memory and in the same
   process, e.g. when working with small files, or run as a service, in which
   case it requires persistent queues like **Azure Queues** or **RabbitMQ**.
   The Core assembly/package includes also a basic in memory queue called

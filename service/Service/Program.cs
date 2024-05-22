@@ -4,15 +4,18 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory.Configuration;
-using Microsoft.KernelMemory.ContentStorage;
 using Microsoft.KernelMemory.Diagnostics;
+using Microsoft.KernelMemory.DocumentStorage;
 using Microsoft.KernelMemory.MemoryStorage;
 using Microsoft.KernelMemory.Pipeline;
+using Microsoft.KernelMemory.Service.AspNetCore;
 
 // KM Configuration:
 //
@@ -42,6 +45,8 @@ namespace Microsoft.KernelMemory.Service;
 
 internal static class Program
 {
+    private static readonly DateTimeOffset s_start = DateTimeOffset.UtcNow;
+
     public static void Main(string[] args)
     {
         // *************************** CONFIG WIZARD ***************************
@@ -54,8 +59,18 @@ internal static class Program
 
         // *************************** APP BUILD *******************************
 
+        int asyncHandlersCount = 0;
+        int syncHandlersCount = 0;
+        string memoryType = string.Empty;
+
         // Usual .NET web app builder with settings from appsettings.json, appsettings.<ENV>.json, and env vars
         WebApplicationBuilder appBuilder = WebApplication.CreateBuilder();
+
+        if (Environment.GetEnvironmentVariable("APPLICATIONINSIGHTS_CONNECTION_STRING") != null)
+        {
+            appBuilder.Services.AddApplicationInsightsTelemetry();
+        }
+
         appBuilder.Configuration.AddKMConfigurationSources();
 
         // Read KM settings, needed before building the app.
@@ -66,23 +81,68 @@ internal static class Program
         appBuilder.ConfigureSwagger(config);
 
         // Prepare memory builder, sharing the service collection used by the hosting service
-        var memoryBuilder = new KernelMemoryBuilder(appBuilder.Services).WithoutDefaultHandlers();
+        // Internally build the memory client and make it available for dependency injection
+        appBuilder.AddKernelMemory(memoryBuilder =>
+            {
+                memoryBuilder.FromAppSettings().WithoutDefaultHandlers();
 
-        // When using distributed orchestration, handlers are hosted in the current app
-        var asyncHandlersCount = AddHandlersToHostingApp(config, memoryBuilder, appBuilder);
+                // When using distributed orchestration, handlers are hosted in the current app and need to be con
+                asyncHandlersCount = AddHandlersAsHostedServices(config, memoryBuilder, appBuilder);
+            },
+            memory =>
+            {
+                // When using in process orchestration, handlers are hosted by the memory orchestrator
+                syncHandlersCount = AddHandlersToServerlessMemory(config, memory);
 
-        // Build the memory client and make it available for dependency injection
-        var memory = memoryBuilder.FromAppSettings().Build();
-        appBuilder.Services.AddSingleton<IKernelMemory>(memory);
+                memoryType = ((memory is MemoryServerless) ? "Sync - " : "Async - ") + memory.GetType().FullName;
+            });
 
-        // When using in process orchestration, handlers are hosted by the memory orchestrator
-        var syncHandlersCount = AddHandlersToOrchestrator(config, memory);
+        // CORS
+        bool enableCORS = false;
+        const string CORSPolicyName = "KM-CORS";
+        if (enableCORS && config.Service.RunWebService)
+        {
+            appBuilder.Services.AddCors(options =>
+            {
+                options.AddPolicy(name: CORSPolicyName, policy =>
+                {
+                    policy
+                        .WithMethods("HEAD", "GET", "POST", "PUT", "DELETE")
+                        .WithExposedHeaders("Content-Type", "Content-Length", "Last-Modified");
+                    // .AllowAnyOrigin()
+                    // .WithOrigins(...)
+                    // .AllowAnyHeader()
+                    // .WithHeaders(...)
+                });
+            });
+        }
 
         // Build .NET web app as usual
         WebApplication app = appBuilder.Build();
 
-        // Add HTTP endpoints using minimal API (https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis)
-        app.ConfigureMinimalAPI(config);
+        if (config.Service.RunWebService)
+        {
+            if (enableCORS) { app.UseCors(CORSPolicyName); }
+
+            app.UseSwagger(config);
+            var authFilter = new HttpAuthEndpointFilter(config.ServiceAuthorization);
+            app.MapGet("/", () => Results.Ok("Ingestion service is running. " +
+                                             "Uptime: " + (DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                                                           - s_start.ToUnixTimeSeconds()) + " secs " +
+                                             $"- Environment: {Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT")}"))
+                .AddEndpointFilter(authFilter)
+                .Produces<string>(StatusCodes.Status200OK)
+                .Produces<ProblemDetails>(StatusCodes.Status401Unauthorized)
+                .Produces<ProblemDetails>(StatusCodes.Status403Forbidden);
+
+            // Add HTTP endpoints using minimal API (https://learn.microsoft.com/aspnet/core/fundamentals/minimal-apis)
+            app.AddKernelMemoryEndpoints("/", authFilter);
+
+            if (config.ServiceAuthorization.Enabled && config.ServiceAuthorization.AccessKey1 == config.ServiceAuthorization.AccessKey2)
+            {
+                app.Logger.LogError("KM Web Service: Access keys 1 and 2 have the same value. Keys should be different to allow rotation.");
+            }
+        }
 
         // *************************** START ***********************************
 
@@ -94,13 +154,13 @@ internal static class Program
 
         Console.WriteLine("***************************************************************************************************************************");
         Console.WriteLine("* Environment         : " + (string.IsNullOrEmpty(env) ? "WARNING: ASPNETCORE_ENVIRONMENT env var not defined" : env));
-        Console.WriteLine("* Memory type         : " + ((memory is MemoryServerless) ? "Sync - " : "Async - ") + memory.GetType().FullName);
+        Console.WriteLine("* Memory type         : " + memoryType);
         Console.WriteLine("* Pipeline handlers   : " + $"{syncHandlersCount} synchronous / {asyncHandlersCount} asynchronous");
         Console.WriteLine("* Web service         : " + (config.Service.RunWebService ? "Enabled" : "Disabled"));
         Console.WriteLine("* Web service auth    : " + (config.ServiceAuthorization.Enabled ? "Enabled" : "Disabled"));
         Console.WriteLine("* OpenAPI swagger     : " + (config.Service.OpenApiEnabled ? "Enabled" : "Disabled"));
         Console.WriteLine("* Memory Db           : " + app.Services.GetService<IMemoryDb>()?.GetType().FullName);
-        Console.WriteLine("* Content storage     : " + app.Services.GetService<IContentStorage>()?.GetType().FullName);
+        Console.WriteLine("* Document storage    : " + app.Services.GetService<IDocumentStorage>()?.GetType().FullName);
         Console.WriteLine("* Embedding generation: " + app.Services.GetService<ITextEmbeddingGenerator>()?.GetType().FullName);
         Console.WriteLine("* Text generation     : " + app.Services.GetService<ITextGenerator>()?.GetType().FullName);
         Console.WriteLine("* Log level           : " + app.Logger.GetLogLevelName());
@@ -121,7 +181,7 @@ internal static class Program
     /// <summary>
     /// Register handlers as asynchronous hosted services
     /// </summary>
-    private static int AddHandlersToHostingApp(
+    private static int AddHandlersAsHostedServices(
         KernelMemoryConfig config,
         IKernelMemoryBuilder memoryBuilder,
         WebApplicationBuilder appBuilder)
@@ -150,7 +210,7 @@ internal static class Program
     /// <summary>
     /// Register handlers instances inside the synchronous orchestrator
     /// </summary>
-    private static int AddHandlersToOrchestrator(
+    private static int AddHandlersToServerlessMemory(
         KernelMemoryConfig config, IKernelMemory memory)
     {
         if (memory is not MemoryServerless) { return 0; }

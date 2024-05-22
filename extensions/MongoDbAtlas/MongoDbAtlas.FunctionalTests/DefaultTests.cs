@@ -1,11 +1,11 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
-using FunctionalTests.DefaultTestCases;
 using Microsoft.KernelMemory;
 using Microsoft.KernelMemory.MongoDbAtlas;
-using Microsoft.TestHelpers;
+using Microsoft.KM.Core.FunctionalTests.DefaultTestCases;
+using Microsoft.KM.TestHelpers;
 
-namespace MongoDbAtlas.FunctionalTests;
+namespace Microsoft.MongoDbAtlas.FunctionalTests;
 
 public class DefaultTestsSingleCollection : DefaultTests
 {
@@ -139,5 +139,12 @@ public abstract class DefaultTests : BaseFunctionalTestCase
     public async Task ItSupportsTags()
     {
         await DocumentUploadTest.ItSupportsTags(this._memory, this.Log);
+    }
+
+    [Fact]
+    [Trait("Category", "MongoDbAtlas")]
+    public async Task ItDownloadsPDFDocs()
+    {
+        await DocumentUploadTest.ItDownloadsPDFDocs(this._memory, this.Log);
     }
 }
