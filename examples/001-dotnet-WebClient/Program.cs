@@ -26,7 +26,7 @@ public static class Program
 
     public static async Task Main()
     {
-        s_memory = new MemoryWebClient("http://127.0.0.1:9001/");
+        s_memory = new MemoryWebClient("https://hyperleap-dev-mem-api.azurewebsites.net", "ZTE1ZDZmZGUtMjJlYi00N2NhLTk2ODktYWMwNjg0ZmMwMWY3");
 
         // =======================
         // === INGESTION =========
