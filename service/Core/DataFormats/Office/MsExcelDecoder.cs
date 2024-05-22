@@ -1,68 +1,57 @@
-// Copyright (c) Microsoft. All rights reserved.
+﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using ClosedXML.Excel;
+using Microsoft.Extensions.Logging;
+using Microsoft.KernelMemory.Diagnostics;
+using Microsoft.KernelMemory.Pipeline;
 
 namespace Microsoft.KernelMemory.DataFormats.Office;
 
-public class MsExcelDecoder
+[Experimental("KMEXP00")]
+public sealed class MsExcelDecoder : IContentDecoder
 {
-    private const string DefaultSheetNumberTemplate = "\n# Worksheet {number}\n";
-    private const string DefaultEndOfSheetTemplate = "\n# End of worksheet {number}";
-    private const string DefaultRowPrefix = "";
-    private const string DefaultColumnSeparator = ", ";
-    private const string DefaultRowSuffix = "";
+    private readonly MsExcelDecoderConfig _config;
+    private readonly ILogger<MsExcelDecoder> _log;
 
-    private readonly bool _withWorksheetNumber;
-    private readonly bool _withEndOfWorksheetMarker;
-    private readonly bool _withQuotes;
-    private readonly string _worksheetNumberTemplate;
-    private readonly string _endOfWorksheetMarkerTemplate;
-    private readonly string _rowPrefix;
-    private readonly string _columnSeparator;
-    private readonly string _rowSuffix;
-
-    public MsExcelDecoder(
-        bool withWorksheetNumber = true,
-        bool withEndOfWorksheetMarker = false,
-        bool withQuotes = true,
-        string? worksheetNumberTemplate = null,
-        string? endOfWorksheetMarkerTemplate = null,
-        string? rowPrefix = null,
-        string? columnSeparator = null,
-        string? rowSuffix = null)
+    public MsExcelDecoder(MsExcelDecoderConfig? config = null, ILogger<MsExcelDecoder>? log = null)
     {
-        this._withWorksheetNumber = withWorksheetNumber;
-        this._withEndOfWorksheetMarker = withEndOfWorksheetMarker;
-        this._withQuotes = withQuotes;
-
-        this._worksheetNumberTemplate = worksheetNumberTemplate ?? DefaultSheetNumberTemplate;
-        this._endOfWorksheetMarkerTemplate = endOfWorksheetMarkerTemplate ?? DefaultEndOfSheetTemplate;
-
-        this._rowPrefix = rowPrefix ?? DefaultRowPrefix;
-        this._columnSeparator = columnSeparator ?? DefaultColumnSeparator;
-        this._rowSuffix = rowSuffix ?? DefaultRowSuffix;
+        this._config = config ?? new MsExcelDecoderConfig();
+        this._log = log ?? DefaultLogger<MsExcelDecoder>.Instance;
     }
 
-    public FileContent ExtractContent(string filename)
+    /// <inheritdoc />
+    public bool SupportsMimeType(string mimeType)
+    {
+        return mimeType != null && mimeType.StartsWith(MimeTypes.MsExcelX, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <inheritdoc />
+    public Task<FileContent> DecodeAsync(string filename, CancellationToken cancellationToken = default)
     {
         using var stream = File.OpenRead(filename);
-        return this.ExtractContent(stream);
+        return this.DecodeAsync(stream, cancellationToken);
     }
 
-    public FileContent ExtractContent(BinaryData data)
+    /// <inheritdoc />
+    public Task<FileContent> DecodeAsync(BinaryData data, CancellationToken cancellationToken = default)
     {
         using var stream = data.ToStream();
-        return this.ExtractContent(stream);
+        return this.DecodeAsync(stream, cancellationToken);
     }
 
-    public FileContent ExtractContent(Stream data)
+    /// <inheritdoc />
+    public Task<FileContent> DecodeAsync(Stream data, CancellationToken cancellationToken = default)
     {
-        var result = new FileContent();
+        this._log.LogDebug("Extracting text from MS Excel file");
 
+        var result = new FileContent(MimeTypes.PlainText);
         using var workbook = new XLWorkbook(data);
         var sb = new StringBuilder();
 
@@ -70,45 +59,95 @@ public class MsExcelDecoder
         foreach (var worksheet in workbook.Worksheets)
         {
             worksheetNumber++;
-            if (this._withWorksheetNumber)
+            if (this._config.WithWorksheetNumber)
             {
-                sb.AppendLine(this._worksheetNumberTemplate.Replace("{number}", $"{worksheetNumber}", StringComparison.OrdinalIgnoreCase));
+                sb.AppendLine(this._config.WorksheetNumberTemplate.Replace("{number}", $"{worksheetNumber}", StringComparison.OrdinalIgnoreCase));
             }
 
-            foreach (IXLRangeRow? row in worksheet.RangeUsed().RowsUsed())
+            var rowsUsed = worksheet.RangeUsed()?.RowsUsed();
+            if (rowsUsed == null)
+            {
+                continue;
+            }
+
+            foreach (IXLRangeRow? row in rowsUsed)
             {
                 if (row == null) { continue; }
 
-                var cells = row.CellsUsed().ToList();
+                var cells = row.Cells().ToList();
 
-                sb.Append(this._rowPrefix);
+                sb.Append(this._config.RowPrefix);
                 for (var i = 0; i < cells.Count; i++)
                 {
                     IXLCell? cell = cells[i];
 
-                    if (this._withQuotes && cell is { Value.IsText: true })
+                    /* Note: some data types are not well supported; for example the values below
+                     *       are extracted incorrectly regardless of the cell configuration.
+                     *       In this cases using Text cell type might be better.
+                     *
+                     * - Date: "Monday, December 25, 2090"  => "69757"
+                     * - Time: "12:55:00"                   => "0.5381944444444444"
+                     * - Time: "12:55"                      => "12/31/1899"
+                     * - Currency symbols are not extracted
+                     */
+                    if (this._config.WithQuotes)
                     {
-                        sb.Append('"')
-                            .Append(cell.Value.GetText().Replace("\"", "\"\"", StringComparison.Ordinal))
-                            .Append('"');
+                        sb.Append('"');
+                        if (cell == null || cell.Value.IsBlank)
+                        {
+                            sb.Append(this._config.BlankCellValue);
+                        }
+                        else if (cell.Value.IsTimeSpan)
+                        {
+                            sb.Append(cell.Value.GetTimeSpan().ToString(this._config.TimeSpanFormat, this._config.TimeSpanProvider));
+                        }
+                        else if (cell.Value.IsDateTime)
+                        {
+                            // TODO: check cell.Style.DateFormat.Format
+                            sb.Append(cell.Value.GetDateTime().ToString(this._config.DateFormat, this._config.DateFormatProvider));
+                        }
+                        else if (cell.Value.IsBoolean)
+                        {
+                            sb.Append(cell.Value.GetBoolean() ? this._config.BooleanTrueValue : this._config.BooleanFalseValue);
+                        }
+                        else if (cell.Value.IsText)
+                        {
+                            var value = cell.Value.GetText().Replace("\"", "\"\"", StringComparison.Ordinal);
+                            sb.Append(string.IsNullOrEmpty(value) ? this._config.BlankCellValue : value);
+                        }
+                        else if (cell.Value.IsNumber)
+                        {
+                            // TODO: check cell.Style.NumberFormat.Format and cell.Style.DateFormat.Format to detect dates, currency symbols, phone numbers
+                            sb.Append(cell.Value.GetNumber());
+                        }
+                        else if (cell.Value.IsUnifiedNumber)
+                        {
+                            sb.Append(cell.Value.GetUnifiedNumber());
+                        }
+                        else if (cell.Value.IsError)
+                        {
+                            sb.Append(cell.Value.GetError().ToString().Replace("\"", "\"\"", StringComparison.Ordinal));
+                        }
+
+                        sb.Append('"');
                     }
                     else
                     {
-                        sb.Append(cell.Value);
+                        sb.Append(cell.Value.IsBlank ? this._config.BlankCellValue : cell.Value);
                     }
 
                     if (i < cells.Count - 1)
                     {
-                        sb.Append(this._columnSeparator);
+                        sb.Append(this._config.ColumnSeparator);
                     }
                 }
 
-                sb.AppendLine(this._rowSuffix);
+                sb.AppendLine(this._config.RowSuffix);
             }
 
-            if (this._withEndOfWorksheetMarker)
+            if (this._config.WithEndOfWorksheetMarker)
             {
-                sb.AppendLine(this._endOfWorksheetMarkerTemplate.Replace("{number}", $"{worksheetNumber}", StringComparison.OrdinalIgnoreCase));
+                sb.AppendLine(this._config.EndOfWorksheetMarkerTemplate.Replace("{number}", $"{worksheetNumber}", StringComparison.OrdinalIgnoreCase));
             }
 
             string worksheetContent = sb.ToString().Trim();
@@ -116,6 +155,6 @@ public class MsExcelDecoder
             result.Sections.Add(new FileSection(worksheetNumber, worksheetContent, true));
         }
 
-        return result;
+        return Task.FromResult(result);
     }
 }

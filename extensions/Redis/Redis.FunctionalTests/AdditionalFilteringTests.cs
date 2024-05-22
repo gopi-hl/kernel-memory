@@ -1,12 +1,12 @@
 // Copyright (c) Microsoft. All rights reserved.
 
 using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.ContentStorage.DevTools;
+using Microsoft.KernelMemory.DocumentStorage.DevTools;
 using Microsoft.KernelMemory.FileSystem.DevTools;
-using Microsoft.TestHelpers;
+using Microsoft.KM.TestHelpers;
 using Xunit.Abstractions;
 
-namespace Redis.FunctionalTests;
+namespace Microsoft.Redis.FunctionalTests;
 
 public class AdditionalFilteringTests : BaseFunctionalTestCase
 {

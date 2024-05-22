@@ -1,17 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
     <PropertyGroup>
-        <OutputType>Exe</OutputType>
-        <TargetFramework>net6.0</TargetFramework>
+        <TargetFramework>net8.0</TargetFramework>
         <ImplicitUsings>enable</ImplicitUsings>
-        <AssemblyName/>
-        <RootNamespace/>
-        <ManagePackageVersionsCentrally>false</ManagePackageVersionsCentrally>
-        <UserSecretsId>5ee045b0-aea3-4f08-8d31-32d1a6f8fed0</UserSecretsId>
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\service\Core\Core.csproj"/>
+        <!-- To run the example choose one of these backends -->
+        <PackageReference Include="LLamaSharp.Backend.Cpu" />
+        <!-- <PackageReference Include="LLamaSharp.Backend.Cuda11" />   -->
+        <!-- <PackageReference Include="LLamaSharp.Backend.Cuda12" />   -->
+        <!-- <PackageReference Include="LLamaSharp.Backend.OpenCL" />   -->
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\extensions\AzureOpenAI\AzureOpenAI.csproj" />
+        <ProjectReference Include="..\..\extensions\OpenAI\OpenAI.csproj" />
+        <ProjectReference Include="..\..\service\Core\Core.csproj" />
         <ProjectReference Include="..\..\extensions\LlamaSharp\LlamaSharp\LlamaSharp.csproj" />
     </ItemGroup>
 
