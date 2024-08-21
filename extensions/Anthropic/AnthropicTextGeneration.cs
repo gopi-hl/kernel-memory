@@ -7,7 +7,7 @@ using System.Runtime.CompilerServices;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using Microsoft.KernelMemory.AI.Anthropic.Client;
-using Microsoft.KernelMemory.AI.TikToken;
+using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.Diagnostics;
 
 namespace Microsoft.KernelMemory.AI.Anthropic;
@@ -34,12 +34,12 @@ public sealed class AnthropicTextGeneration : ITextGenerator, IDisposable
     /// <param name="config">Client configuration, including credentials and model details</param>
     /// <param name="textTokenizer">Tokenizer used to count tokens</param>
     /// <param name="httpClientFactory">Optional factory used to inject a pre-configured HTTP client for requests to Anthropic API</param>
-    /// <param name="logFactory">Optional factory used to inject configured loggers</param>
+    /// <param name="loggerFactory">Optional factory used to inject configured loggers</param>
     public AnthropicTextGeneration(
-        AnthropicConfiguration config,
+        AnthropicConfig config,
         ITextTokenizer? textTokenizer = null,
         IHttpClientFactory? httpClientFactory = null,
-        ILoggerFactory? logFactory = null)
+        ILoggerFactory? loggerFactory = null)
     {
         this._modelName = config.TextModelName;
         this._defaultSystemPrompt = !string.IsNullOrWhiteSpace(config.DefaultSystemPrompt) ? config.DefaultSystemPrompt : DefaultSystemPrompt;
@@ -47,9 +47,7 @@ public sealed class AnthropicTextGeneration : ITextGenerator, IDisposable
         // Using the smallest value for now - KM support MaxTokenIn and MaxTokenOut TODO
         this.MaxTokenTotal = config.MaxTokenOut;
 
-        this._log = (logFactory != null)
-            ? logFactory.CreateLogger<AnthropicTextGeneration>()
-            : DefaultLogger<AnthropicTextGeneration>.Instance;
+        this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<AnthropicTextGeneration>();
 
         if (httpClientFactory == null)
         {
@@ -70,8 +68,8 @@ public sealed class AnthropicTextGeneration : ITextGenerator, IDisposable
         {
             this._log.LogWarning(
                 "Tokenizer not specified, will use {0}. The token count might be incorrect, causing unexpected errors",
-                nameof(TikTokenGPT4Tokenizer));
-            textTokenizer = new TikTokenGPT4Tokenizer();
+                nameof(GPT4Tokenizer));
+            textTokenizer = new GPT4Tokenizer();
         }
 
         this._textTokenizer = textTokenizer;
@@ -86,13 +84,19 @@ public sealed class AnthropicTextGeneration : ITextGenerator, IDisposable
         return this._textTokenizer.CountTokens(text);
     }
 
+    /// <inheritdoc/>
+    public IReadOnlyList<string> GetTokens(string text)
+    {
+        return this._textTokenizer.GetTokens(text);
+    }
+
     /// <inheritdoc />
     public async IAsyncEnumerable<string> GenerateTextAsync(
         string prompt,
         TextGenerationOptions options,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        this._log.LogTrace("Sending text generation request");
+        this._log.LogTrace("Sending text generation request, model '{0}'", this._modelName);
 
         CallClaudeStreamingParams parameters = new(this._modelName, prompt)
         {
@@ -112,7 +116,7 @@ public sealed class AnthropicTextGeneration : ITextGenerator, IDisposable
                     break;
 
                 default:
-                    //do nothing we simple want to use delta text.
+                    //do nothing we simply want to use delta text.
                     break;
             }
         }

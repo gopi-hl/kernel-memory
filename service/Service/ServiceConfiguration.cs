@@ -6,6 +6,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory.AI.Anthropic;
+using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.DocumentStorage.DevTools;
 using Microsoft.KernelMemory.MemoryDb.SQLServer;
 using Microsoft.KernelMemory.MemoryStorage;
@@ -162,6 +163,10 @@ internal sealed class ServiceConfiguration
                                                                 ?? this.GetServiceConfig<AzureBlobsConfig>("AzureBlob"));
                 break;
 
+            case string x when x.Equals("AWSS3", StringComparison.OrdinalIgnoreCase):
+                builder.Services.AddAWSS3AsDocumentStorage(this.GetServiceConfig<AWSS3Config>("AWSS3"));
+                break;
+
             case string x when x.Equals("MongoDbAtlas", StringComparison.OrdinalIgnoreCase):
                 builder.Services.AddMongoDbAtlasAsDocumentStorage(this.GetServiceConfig<MongoDbAtlasConfig>("MongoDbAtlas"));
                 break;
@@ -178,7 +183,6 @@ internal sealed class ServiceConfiguration
 
     private void ConfigureTextPartitioning(IKernelMemoryBuilder builder)
     {
-        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
         if (this._memoryConfiguration.DataIngestion.TextPartitioning != null)
         {
             this._memoryConfiguration.DataIngestion.TextPartitioning.Validate();
@@ -209,7 +213,9 @@ internal sealed class ServiceConfiguration
                 case string y when y.Equals("AzureOpenAIEmbedding", StringComparison.OrdinalIgnoreCase):
                 {
                     var instance = this.GetServiceInstance<ITextEmbeddingGenerator>(builder,
-                        s => s.AddAzureOpenAIEmbeddingGeneration(this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIEmbedding")));
+                        s => s.AddAzureOpenAIEmbeddingGeneration(
+                            config: this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIEmbedding"),
+                            textTokenizer: new GPT4Tokenizer()));
                     builder.AddIngestionEmbeddingGenerator(instance);
                     break;
                 }
@@ -217,7 +223,9 @@ internal sealed class ServiceConfiguration
                 case string x when x.Equals("OpenAI", StringComparison.OrdinalIgnoreCase):
                 {
                     var instance = this.GetServiceInstance<ITextEmbeddingGenerator>(builder,
-                        s => s.AddOpenAITextEmbeddingGeneration(this.GetServiceConfig<OpenAIConfig>("OpenAI")));
+                        s => s.AddOpenAITextEmbeddingGeneration(
+                            config: this.GetServiceConfig<OpenAIConfig>("OpenAI"),
+                            textTokenizer: new GPT4Tokenizer()));
                     builder.AddIngestionEmbeddingGenerator(instance);
                     break;
                 }
@@ -342,11 +350,15 @@ internal sealed class ServiceConfiguration
         {
             case string x when x.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase):
             case string y when y.Equals("AzureOpenAIEmbedding", StringComparison.OrdinalIgnoreCase):
-                builder.Services.AddAzureOpenAIEmbeddingGeneration(this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIEmbedding"));
+                builder.Services.AddAzureOpenAIEmbeddingGeneration(
+                    config: this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIEmbedding"),
+                    textTokenizer: new GPT4Tokenizer());
                 break;
 
             case string x when x.Equals("OpenAI", StringComparison.OrdinalIgnoreCase):
-                builder.Services.AddOpenAITextEmbeddingGeneration(this.GetServiceConfig<OpenAIConfig>("OpenAI"));
+                builder.Services.AddOpenAITextEmbeddingGeneration(
+                    config: this.GetServiceConfig<OpenAIConfig>("OpenAI"),
+                    textTokenizer: new GPT4Tokenizer());
                 break;
 
             default:
@@ -409,15 +421,19 @@ internal sealed class ServiceConfiguration
         {
             case string x when x.Equals("AzureOpenAI", StringComparison.OrdinalIgnoreCase):
             case string y when y.Equals("AzureOpenAIText", StringComparison.OrdinalIgnoreCase):
-                builder.Services.AddAzureOpenAITextGeneration(this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIText"));
+                builder.Services.AddAzureOpenAITextGeneration(
+                    config: this.GetServiceConfig<AzureOpenAIConfig>("AzureOpenAIText"),
+                    textTokenizer: new GPT4Tokenizer());
                 break;
 
             case string x when x.Equals("OpenAI", StringComparison.OrdinalIgnoreCase):
-                builder.Services.AddOpenAITextGeneration(this.GetServiceConfig<OpenAIConfig>("OpenAI"));
+                builder.Services.AddOpenAITextGeneration(
+                    config: this.GetServiceConfig<OpenAIConfig>("OpenAI"),
+                    textTokenizer: new GPT4Tokenizer());
                 break;
 
             case string x when x.Equals("Anthropic", StringComparison.OrdinalIgnoreCase):
-                builder.Services.AddAnthropicTextGeneration(this.GetServiceConfig<AnthropicConfiguration>("Anthropic"));
+                builder.Services.AddAnthropicTextGeneration(this.GetServiceConfig<AnthropicConfig>("Anthropic"));
                 break;
 
             case string x when x.Equals("LlamaSharp", StringComparison.OrdinalIgnoreCase):

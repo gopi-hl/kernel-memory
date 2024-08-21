@@ -9,7 +9,7 @@ using Microsoft.KernelMemory.MemoryStorage;
 namespace Microsoft.KernelMemory;
 
 /// <summary>
-/// Extensions for KernelMemoryBuilder
+/// Kernel Memory builder extensions
 /// </summary>
 public static partial class KernelMemoryBuilderExtensions
 {
@@ -41,7 +41,7 @@ public static partial class KernelMemoryBuilderExtensions
 }
 
 /// <summary>
-/// Extensions for KernelMemoryBuilder and generic DI
+/// .NET IServiceCollection dependency injection extensions.
 /// </summary>
 public static partial class DependencyInjection
 {
@@ -63,7 +63,7 @@ public static partial class DependencyInjection
     /// Inject SqlServer as the default implementation of IMemoryDb
     /// </summary>
     /// <param name="services">Service collection</param>
-    /// <param name="connString">Postgres connection string</param>
+    /// <param name="connString">SQL Server connection string</param>
     public static IServiceCollection AddSqlServerAsMemoryDb(
         this IServiceCollection services,
         string connString)

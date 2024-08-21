@@ -29,7 +29,7 @@ namespace Microsoft.KernelMemory.MemoryDb.AzureAISearch;
 /// * support custom schema
 /// * support custom Azure AI Search logic
 /// </summary>
-public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
+public class AzureAISearchMemory : IMemoryDb, IMemoryDbUpsertBatch
 {
     private readonly ITextEmbeddingGenerator _embeddingGenerator;
     private readonly ILogger<AzureAISearchMemory> _log;
@@ -40,14 +40,14 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
     /// </summary>
     /// <param name="config">Azure AI Search configuration</param>
     /// <param name="embeddingGenerator">Text embedding generator</param>
-    /// <param name="log">Application logger</param>
+    /// <param name="loggerFactory">Application logger factory</param>
     public AzureAISearchMemory(
         AzureAISearchConfig config,
         ITextEmbeddingGenerator embeddingGenerator,
-        ILogger<AzureAISearchMemory>? log = null)
+        ILoggerFactory? loggerFactory = null)
     {
         this._embeddingGenerator = embeddingGenerator;
-        this._log = log ?? DefaultLogger<AzureAISearchMemory>.Instance;
+        this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<AzureAISearchMemory>();
         this._useHybridSearch = config.UseHybridSearch;
 
         if (string.IsNullOrEmpty(config.Endpoint))
@@ -127,13 +127,13 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
     /// <inheritdoc />
     public async Task<string> UpsertAsync(string index, MemoryRecord record, CancellationToken cancellationToken = default)
     {
-        var result = this.BatchUpsertAsync(index, new[] { record }, cancellationToken);
+        var result = this.UpsertBatchAsync(index, new[] { record }, cancellationToken);
         var id = await result.SingleAsync(cancellationToken).ConfigureAwait(false);
         return id;
     }
 
     /// <inheritdoc />
-    public async IAsyncEnumerable<string> BatchUpsertAsync(
+    public async IAsyncEnumerable<string> UpsertBatchAsync(
         string index,
         IEnumerable<MemoryRecord> records,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -169,14 +169,11 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
         bool withEmbeddings = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        if (limit <= 0) { limit = int.MaxValue; }
-
         var client = this.GetSearchClient(index);
 
         Embedding textEmbedding = await this._embeddingGenerator.GenerateEmbeddingAsync(text, cancellationToken).ConfigureAwait(false);
         VectorizedQuery vectorQuery = new(textEmbedding.Data)
         {
-            KNearestNeighborsCount = limit,
             Fields = { AzureAISearchMemoryRecord.VectorField },
             // Exhaustive search is a brute force comparison across all vectors,
             // ignoring the index, which can be much slower once the index contains a lot of data.
@@ -194,15 +191,20 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
             }
         };
 
+        if (limit > 0)
+        {
+            vectorQuery.KNearestNeighborsCount = limit;
+            options.Size = limit;
+            this._log.LogDebug("KNearestNeighborsCount and max results: {0}", limit);
+        }
+
         // Remove empty filters
         filters = filters?.Where(f => !f.IsEmpty()).ToList();
 
         if (filters is { Count: > 0 })
         {
             options.Filter = AzureAISearchFiltering.BuildSearchFilter(filters);
-            options.Size = limit;
-
-            this._log.LogDebug("Filtering vectors, limit {0}, condition: {1}", options.Size, options.Filter);
+            this._log.LogDebug("Filtering vectors, condition: {0}", options.Filter);
         }
 
         Response<SearchResults<AzureAISearchMemoryRecord>>? searchResult = null;
@@ -227,13 +229,16 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
         {
             if (doc == null || doc.Score < minDistance) { continue; }
 
-            // In cases where Azure Search is returning too many records
-            if (++count > limit) { break; }
-
             MemoryRecord memoryRecord = doc.Document.ToMemoryRecord(withEmbeddings);
 
             var documentScore = this._useHybridSearch ? doc.Score ?? 0 : ScoreToCosineSimilarity(doc.Score ?? 0);
             yield return (memoryRecord, documentScore);
+
+            // Stop after returning the amount requested, even if storage is returning more records
+            if (limit > 0 && ++count >= limit)
+            {
+                break;
+            }
         }
     }
 
@@ -245,20 +250,23 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
         bool withEmbeddings = false,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        if (limit <= 0) { limit = int.MaxValue; }
-
         var client = this.GetSearchClient(index);
+
+        SearchOptions options = new();
+
+        if (limit > 0)
+        {
+            options.Size = limit;
+            this._log.LogDebug("Max results: {0}", limit);
+        }
 
         // Remove empty filters
         filters = filters?.Where(f => !f.IsEmpty()).ToList();
 
-        SearchOptions options = new();
         if (filters is { Count: > 0 })
         {
             options.Filter = AzureAISearchFiltering.BuildSearchFilter(filters);
-            options.Size = limit;
-
-            this._log.LogDebug("Filtering vectors, limit {0}, condition: {1}", options.Size, options.Filter);
+            this._log.LogDebug("Filtering vectors, condition: {0}", options.Filter);
         }
 
         // See: https://learn.microsoft.com/azure/search/search-query-understand-collection-filters
@@ -286,12 +294,16 @@ public class AzureAISearchMemory : IMemoryDb, IMemoryDbBatchUpsert
 
         if (searchResult == null) { yield break; }
 
+        var count = 0;
         await foreach (SearchResult<AzureAISearchMemoryRecord>? doc in searchResult.Value.GetResultsAsync().ConfigureAwait(false))
         {
-            // stop after returning the amount requested
-            if (limit-- <= 0) { yield break; }
-
             yield return doc.Document.ToMemoryRecord(withEmbeddings);
+
+            // Stop after returning the amount requested, even if storage is returning more records
+            if (limit > 0 && ++count >= limit)
+            {
+                break;
+            }
         }
     }
 

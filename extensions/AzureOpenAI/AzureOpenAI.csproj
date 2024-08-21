@@ -5,12 +5,12 @@
         <RollForward>LatestMajor</RollForward>
         <AssemblyName>Microsoft.KernelMemory.AI.AzureOpenAI</AssemblyName>
         <RootNamespace>Microsoft.KernelMemory.AI.AzureOpenAI</RootNamespace>
-        <NoWarn>$(NoWarn);KMEXP00;KMEXP01;CA1724;CS1591;SKEXP0010;SKEXP0011;</NoWarn>
+        <NoWarn>$(NoWarn);KMEXP00;KMEXP01;CA1724;SKEXP0010;SKEXP0011;</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
         <ProjectReference Include="..\..\service\Abstractions\Abstractions.csproj" />
-        <ProjectReference Include="..\OpenAI\OpenAI.csproj" />
+        <ProjectReference Include="..\OpenAI\OpenAI\OpenAI.csproj" />
     </ItemGroup>
 
     <ItemGroup>

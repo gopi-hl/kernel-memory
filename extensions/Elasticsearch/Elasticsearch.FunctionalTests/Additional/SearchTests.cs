@@ -75,6 +75,7 @@ public class SearchTests : MemoryDbFunctionalTest
     }
 
     [Fact]
+    [Trait("Category", "Elasticsearch")]
     public async Task CanGetListWithEmptyFiltersAsync()
     {
         await foreach (var result in this.MemoryDb.GetListAsync(
@@ -84,8 +85,6 @@ public class SearchTests : MemoryDbFunctionalTest
                            withEmbeddings: false))
         {
         }
-
-        ;
 
         // If it gets here, the test passed.
     }

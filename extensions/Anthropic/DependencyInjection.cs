@@ -11,7 +11,7 @@ using Microsoft.KernelMemory.AI.Anthropic;
 namespace Microsoft.KernelMemory;
 
 /// <summary>
-/// Allows configuration for Anthropic text generation
+/// Kernel Memory builder extensions
 /// </summary>
 public static partial class KernelMemoryBuilderExtensions
 {
@@ -23,7 +23,7 @@ public static partial class KernelMemoryBuilderExtensions
     /// <param name="textTokenizer">Optional tokenizer, default one will be used if passed null.</param>
     public static IKernelMemoryBuilder WithAnthropicTextGeneration(
         this IKernelMemoryBuilder builder,
-        AnthropicConfiguration config,
+        AnthropicConfig config,
         ITextTokenizer? textTokenizer = null)
     {
         builder.Services.AddAnthropicTextGeneration(config, textTokenizer);
@@ -32,7 +32,7 @@ public static partial class KernelMemoryBuilderExtensions
 }
 
 /// <summary>
-/// Allows configuration for Anthropic text generation
+/// .NET IServiceCollection dependency injection extensions.
 /// </summary>
 public static partial class DependencyInjection
 {
@@ -44,7 +44,7 @@ public static partial class DependencyInjection
     /// <param name="textTokenizer">Tokenizer to measure content size</param>
     public static IServiceCollection AddAnthropicTextGeneration(
         this IServiceCollection services,
-        AnthropicConfiguration config,
+        AnthropicConfig config,
         ITextTokenizer? textTokenizer = null)
     {
         services.AddSingleton(config);
@@ -56,7 +56,7 @@ public static partial class DependencyInjection
                     config: config,
                     textTokenizer: textTokenizer,
                     httpClientFactory: serviceProvider.GetService<IHttpClientFactory>(),
-                    logFactory: serviceProvider.GetService<ILoggerFactory>()));
+                    loggerFactory: serviceProvider.GetService<ILoggerFactory>()));
         }
 
         return services.AddSingleton<ITextGenerator, AnthropicTextGeneration>();

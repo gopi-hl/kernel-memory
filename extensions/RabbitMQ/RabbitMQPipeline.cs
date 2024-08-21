@@ -26,9 +26,9 @@ public sealed class RabbitMQPipeline : IQueue
     /// <summary>
     /// Create a new RabbitMQ queue instance
     /// </summary>
-    public RabbitMQPipeline(RabbitMqConfig config, ILogger<RabbitMQPipeline>? log = null)
+    public RabbitMQPipeline(RabbitMqConfig config, ILoggerFactory? loggerFactory = null)
     {
-        this._log = log ?? DefaultLogger<RabbitMQPipeline>.Instance;
+        this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<RabbitMQPipeline>();
 
         // see https://www.rabbitmq.com/dotnet-api-guide.html#consuming-async
         var factory = new ConnectionFactory
@@ -38,7 +38,12 @@ public sealed class RabbitMQPipeline : IQueue
             UserName = config.Username,
             Password = config.Password,
             VirtualHost = !string.IsNullOrWhiteSpace(config.VirtualHost) ? config.VirtualHost : "/",
-            DispatchConsumersAsync = true
+            DispatchConsumersAsync = true,
+            Ssl = new SslOption
+            {
+                Enabled = config.SslEnabled,
+                ServerName = config.Host,
+            }
         };
 
         this._messageTTLMsecs = config.MessageTTLSecs * 1000;

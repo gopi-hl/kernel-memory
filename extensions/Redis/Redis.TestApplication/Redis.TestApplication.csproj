@@ -9,10 +9,11 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <NoWarn>$(NoWarn);KMEXP01;KMEXP03;</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\OpenAI\OpenAI.csproj" />
+        <ProjectReference Include="..\..\OpenAI\OpenAI\OpenAI.csproj" />
         <ProjectReference Include="..\Redis\Redis.csproj" />
     </ItemGroup>
 

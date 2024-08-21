@@ -8,7 +8,9 @@ using System.Threading;
 using LLama;
 using LLama.Abstractions;
 using LLama.Common;
+using LLama.Sampling;
 using Microsoft.Extensions.Logging;
+using Microsoft.KernelMemory.AI.OpenAI;
 using Microsoft.KernelMemory.Diagnostics;
 
 namespace Microsoft.KernelMemory.AI.LlamaSharp;
@@ -22,7 +24,7 @@ public sealed class LlamaSharpTextGenerator : ITextGenerator, IDisposable
 {
     private readonly LLamaWeights _model;
     private readonly LLamaContext _context;
-    private readonly ITextTokenizer? _textTokenizer;
+    private readonly ITextTokenizer _textTokenizer;
     private readonly ILogger<LlamaSharpTextGenerator> _log;
 
     /// <summary>
@@ -30,30 +32,25 @@ public sealed class LlamaSharpTextGenerator : ITextGenerator, IDisposable
     /// </summary>
     /// <param name="config">Configuration settings</param>
     /// <param name="textTokenizer">Optional text tokenizer, replacing the one provided by the model</param>
-    /// <param name="loggerFactory">Optional .NET logger factory</param>
+    /// <param name="loggerFactory">Application logger instance</param>
     public LlamaSharpTextGenerator(
         LlamaSharpConfig config,
         ITextTokenizer? textTokenizer = null,
         ILoggerFactory? loggerFactory = null)
-        : this(config, textTokenizer, loggerFactory?.CreateLogger<LlamaSharpTextGenerator>())
     {
-    }
-
-    /// <summary>
-    /// Create new instance
-    /// </summary>
-    /// <param name="config">Configuration settings</param>
-    /// <param name="textTokenizer">Optional text tokenizer, replacing the one provided by the model</param>
-    /// <param name="log">Logger instance</param>
-    public LlamaSharpTextGenerator(
-        LlamaSharpConfig config,
-        ITextTokenizer? textTokenizer = null,
-        ILogger<LlamaSharpTextGenerator>? log = null)
-    {
-        this._log = log ?? DefaultLogger<LlamaSharpTextGenerator>.Instance;
+        this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<LlamaSharpTextGenerator>();
 
         config.Validate();
         this.MaxTokenTotal = (int)config.MaxTokenTotal;
+
+        if (textTokenizer == null)
+        {
+            this._log.LogWarning(
+                "Tokenizer not specified, will use {0}. The token count might be incorrect, causing unexpected errors",
+                nameof(GPT4Tokenizer));
+            textTokenizer = new GPT4Tokenizer();
+        }
+
         this._textTokenizer = textTokenizer;
 
         var parameters = new ModelParams(config.ModelPath)
@@ -94,42 +91,40 @@ public sealed class LlamaSharpTextGenerator : ITextGenerator, IDisposable
     }
 
     /// <inheritdoc/>
+    public IReadOnlyList<string> GetTokens(string text)
+    {
+        return this._textTokenizer.GetTokens(text);
+    }
+
+    /// <inheritdoc/>
     public IAsyncEnumerable<string> GenerateTextAsync(
         string prompt,
         TextGenerationOptions options,
         CancellationToken cancellationToken = default)
     {
         var executor = new InteractiveExecutor(this._context);
-        IInferenceParams settings = new InferenceParams
-        {
-            TokensKeep = this.MaxTokenTotal,
-            MaxTokens = options.MaxTokens ?? -1,
-            Temperature = (float)options.Temperature,
-            TopP = (float)options.TopP,
-            PresencePenalty = (float)options.PresencePenalty,
-            FrequencyPenalty = (float)options.FrequencyPenalty,
-            AntiPrompts = options.StopSequences?.ToList() ?? new(),
-            LogitBias = new(),
-            // RepeatLastTokensCount = 0, // [int] last n tokens to penalize (0 = disable penalty, -1 = context size)
-            // TopK = 0, // [int] The number of highest probability vocabulary tokens to keep for top-k-filtering.
-            // MinP = 0, // [float]
-            // TfsZ = 0, // [float]
-            // TypicalP = 0, // [float]
-            // RepeatPenalty = 0, // [float]
-            // MirostatTau = 0, // [float]
-            // MirostatEta = 0, // [float]
-            // PenalizeNL = false, // consider newlines as a repeatable token
-            // Mirostat = MirostatType.Disable, // see https://github.com/basusourya/mirostat
-            // Grammar = null // SafeLLamaGrammarHandle
-        };
+
+        var samplingPipeline = new DefaultSamplingPipeline();
+        samplingPipeline.Temperature = (float)options.Temperature;
+        samplingPipeline.TopP = (float)options.NucleusSampling;
+        samplingPipeline.AlphaPresence = (float)options.PresencePenalty;
+        samplingPipeline.AlphaFrequency = (float)options.FrequencyPenalty;
 
         if (options.TokenSelectionBiases is { Count: > 0 })
         {
             foreach (var (token, bias) in options.TokenSelectionBiases)
             {
-                settings.LogitBias!.Add(token, bias);
+                samplingPipeline.LogitBias!.Add(token, bias);
             }
         }
+
+        IInferenceParams settings = new InferenceParams
+        {
+            TokensKeep = this.MaxTokenTotal,
+            MaxTokens = options.MaxTokens ?? -1,
+            AntiPrompts = options.StopSequences?.ToList() ?? new(),
+            SamplingPipeline = samplingPipeline
+        };
 
         return executor.InferAsync(prompt, settings, cancellationToken);
     }

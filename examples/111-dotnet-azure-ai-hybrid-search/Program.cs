@@ -1,13 +1,10 @@
 // Copyright (c) Microsoft. All rights reserved.
 
-// ReSharper disable InconsistentNaming
-
 using Microsoft.KernelMemory;
-using Microsoft.KernelMemory.AI.OpenAI;
 
 public static class Program
 {
-    private const string indexName = "acronyms";
+    private const string IndexName = "acronyms";
 
     public static async Task Main()
     {
@@ -29,41 +26,41 @@ public static class Program
         azureAISearchConfigWithoutHybridSearch.UseHybridSearch = false;
 
         var memoryNoHybridSearch = new KernelMemoryBuilder()
-            .WithAzureOpenAITextGeneration(azureOpenAITextConfig, new DefaultGPTTokenizer())
-            .WithAzureOpenAITextEmbeddingGeneration(azureOpenAIEmbeddingConfig, new DefaultGPTTokenizer())
+            .WithAzureOpenAITextGeneration(azureOpenAITextConfig)
+            .WithAzureOpenAITextEmbeddingGeneration(azureOpenAIEmbeddingConfig)
             .WithAzureAISearchMemoryDb(azureAISearchConfigWithoutHybridSearch)
             .WithSearchClientConfig(new SearchClientConfig { MaxMatchesCount = 2, Temperature = 0, TopP = 0 })
             .Build<MemoryServerless>();
 
         var memoryWithHybridSearch = new KernelMemoryBuilder()
-            .WithAzureOpenAITextGeneration(azureOpenAITextConfig, new DefaultGPTTokenizer())
-            .WithAzureOpenAITextEmbeddingGeneration(azureOpenAIEmbeddingConfig, new DefaultGPTTokenizer())
+            .WithAzureOpenAITextGeneration(azureOpenAITextConfig)
+            .WithAzureOpenAITextEmbeddingGeneration(azureOpenAIEmbeddingConfig)
             .WithAzureAISearchMemoryDb(azureAISearchConfigWithHybridSearch)
             .WithSearchClientConfig(new SearchClientConfig { MaxMatchesCount = 2, Temperature = 0, TopP = 0 })
             .Build<MemoryServerless>();
 
         await CreateIndexAndImportData(memoryWithHybridSearch);
 
-        const string question = "abc";
+        const string Question = "abc";
 
         Console.WriteLine("Answer without hybrid search:");
-        await AskQuestion(memoryNoHybridSearch, question);
+        await AskQuestion(memoryNoHybridSearch, Question);
         // Output: INFO NOT FOUND
 
         Console.WriteLine("Answer using hybrid search:");
-        await AskQuestion(memoryWithHybridSearch, question);
+        await AskQuestion(memoryWithHybridSearch, Question);
         // Output: 'Aliens Brewing Coffee'
     }
 
     private static async Task AskQuestion(IKernelMemory memory, string question)
     {
-        var answer = await memory.AskAsync(question, index: indexName);
+        var answer = await memory.AskAsync(question, index: IndexName);
         Console.WriteLine(answer.Result);
     }
 
     private static async Task CreateIndexAndImportData(IKernelMemory memory)
     {
-        await memory.DeleteIndexAsync(indexName);
+        await memory.DeleteIndexAsync(IndexName);
 
         var data = """
                    aaa bbb ccc 000000000
@@ -77,7 +74,7 @@ public static class Program
         var rows = data.Split("\n");
         foreach (var acronym in rows)
         {
-            await memory.ImportTextAsync(acronym, index: indexName);
+            await memory.ImportTextAsync(acronym, index: IndexName);
         }
     }
 }

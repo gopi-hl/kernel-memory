@@ -1,9 +1,11 @@
 ﻿// Copyright (c) Microsoft. All rights reserved.
 
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using Microsoft.KernelMemory.Diagnostics;
 
 namespace Microsoft.KernelMemory.AI;
 
@@ -13,11 +15,11 @@ namespace Microsoft.KernelMemory.AI;
 /// </summary>
 public class NoEmbeddingGenerator : ITextEmbeddingGenerator
 {
-    private readonly ILogger<ITextEmbeddingGenerator> _log;
+    private readonly ILogger<NoEmbeddingGenerator> _log;
 
-    public NoEmbeddingGenerator(ILoggerFactory loggerFactory)
+    public NoEmbeddingGenerator(ILoggerFactory? loggerFactory = null)
     {
-        this._log = loggerFactory.CreateLogger<ITextEmbeddingGenerator>();
+        this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<NoEmbeddingGenerator>();
     }
 
     /// <inheritdoc />
@@ -25,6 +27,12 @@ public class NoEmbeddingGenerator : ITextEmbeddingGenerator
 
     /// <inheritdoc />
     public int CountTokens(string text)
+    {
+        throw this.Error();
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<string> GetTokens(string text)
     {
         throw this.Error();
     }

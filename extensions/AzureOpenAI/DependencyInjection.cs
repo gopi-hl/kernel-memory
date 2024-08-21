@@ -5,12 +5,14 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.KernelMemory.AI;
 using Microsoft.KernelMemory.AI.AzureOpenAI;
-using Microsoft.KernelMemory.AI.OpenAI;
 
 #pragma warning disable IDE0130 // reduce number of "using" statements
 // ReSharper disable once CheckNamespace - reduce number of "using" statements
 namespace Microsoft.KernelMemory;
 
+/// <summary>
+/// Kernel Memory builder extensions
+/// </summary>
 public static partial class KernelMemoryBuilderExtensions
 {
     /// <summary>
@@ -25,21 +27,19 @@ public static partial class KernelMemoryBuilderExtensions
     /// <returns>KM builder instance</returns>
     public static IKernelMemoryBuilder WithAzureOpenAITextEmbeddingGeneration(
         this IKernelMemoryBuilder builder,
-        AzureOpenAIConfig config,
+        AzureOpenAIConfig? config = null,
         ITextTokenizer? textTokenizer = null,
         ILoggerFactory? loggerFactory = null,
         bool onlyForRetrieval = false,
         HttpClient? httpClient = null)
     {
-        config.Validate();
-        textTokenizer ??= new DefaultGPTTokenizer();
-        builder.Services.AddAzureOpenAIEmbeddingGeneration(config, textTokenizer);
+        builder.Services.AddAzureOpenAIEmbeddingGeneration(config, textTokenizer, httpClient);
 
         if (!onlyForRetrieval)
         {
             builder.AddIngestionEmbeddingGenerator(
                 new AzureOpenAITextEmbeddingGenerator(
-                    config: config,
+                    config: config ?? new AzureOpenAIConfig(),
                     textTokenizer: textTokenizer,
                     loggerFactory: loggerFactory,
                     httpClient));
@@ -58,27 +58,34 @@ public static partial class KernelMemoryBuilderExtensions
     /// <returns>KM builder instance</returns>
     public static IKernelMemoryBuilder WithAzureOpenAITextGeneration(
         this IKernelMemoryBuilder builder,
-        AzureOpenAIConfig config,
+        AzureOpenAIConfig? config = null,
         ITextTokenizer? textTokenizer = null,
         HttpClient? httpClient = null)
     {
-        config.Validate();
-        textTokenizer ??= new DefaultGPTTokenizer();
         builder.Services.AddAzureOpenAITextGeneration(config, textTokenizer, httpClient);
         return builder;
     }
 }
 
+/// <summary>
+/// .NET IServiceCollection dependency injection extensions.
+/// </summary>
 public static partial class DependencyInjection
 {
     public static IServiceCollection AddAzureOpenAIEmbeddingGeneration(
         this IServiceCollection services,
-        AzureOpenAIConfig config,
+        AzureOpenAIConfig? config = null,
         ITextTokenizer? textTokenizer = null,
         HttpClient? httpClient = null)
     {
+        if (config == null && textTokenizer == null && httpClient == null)
+        {
+            return services.AddSingleton<ITextEmbeddingGenerator, AzureOpenAITextEmbeddingGenerator>();
+        }
+
+        config ??= new AzureOpenAIConfig();
         config.Validate();
-        textTokenizer ??= new DefaultGPTTokenizer();
+
         return services
             .AddSingleton<ITextEmbeddingGenerator>(serviceProvider => new AzureOpenAITextEmbeddingGenerator(
                 config,
@@ -89,17 +96,23 @@ public static partial class DependencyInjection
 
     public static IServiceCollection AddAzureOpenAITextGeneration(
         this IServiceCollection services,
-        AzureOpenAIConfig config,
+        AzureOpenAIConfig? config = null,
         ITextTokenizer? textTokenizer = null,
         HttpClient? httpClient = null)
     {
+        if (config == null && textTokenizer == null && httpClient == null)
+        {
+            return services.AddSingleton<ITextGenerator, AzureOpenAITextGenerator>();
+        }
+
+        config ??= new AzureOpenAIConfig();
         config.Validate();
-        textTokenizer ??= new DefaultGPTTokenizer();
+
         return services
             .AddSingleton<ITextGenerator>(serviceProvider => new AzureOpenAITextGenerator(
                 config: config,
                 textTokenizer: textTokenizer,
-                log: serviceProvider.GetService<ILogger<AzureOpenAITextGenerator>>(),
+                loggerFactory: serviceProvider.GetService<ILoggerFactory>(),
                 httpClient: httpClient));
     }
 }
