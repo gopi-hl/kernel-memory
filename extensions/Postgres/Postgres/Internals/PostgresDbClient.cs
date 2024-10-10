@@ -19,28 +19,11 @@ namespace Microsoft.KernelMemory.Postgres;
 /// <summary>
 /// An implementation of a client for Postgres. This class is used to managing postgres database operations.
 /// </summary>
-internal sealed class PostgresDbClient
+internal sealed class PostgresDbClient : IDisposable, IAsyncDisposable
 {
-    // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
-    private const string PgErrUndefinedTable = "42P01"; // undefined_table
-    private const string PgErrUniqueViolation = "23505"; // unique_violation
-    private const string PgErrTypeDoesNotExist = "42704"; // undefined_object
-    private const string PgErrDatabaseDoesNotExist = "3D000"; // invalid_catalog_name
-
+    // Dependencies
+    private readonly NpgsqlDataSource _dataSource;
     private readonly ILogger _log;
-    private readonly NpgsqlDataSourceBuilder _dataSourceBuilder;
-
-    private readonly string _schema;
-    private readonly string _tableNamePrefix;
-    private readonly string _createTableSql;
-    private readonly string _colId;
-    private readonly string _colEmbedding;
-    private readonly string _colTags;
-    private readonly string _colContent;
-    private readonly string _colPayload;
-    private readonly string _columnsListNoEmbeddings;
-    private readonly string _columnsListWithEmbeddings;
-    private readonly bool _dbNamePresent;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PostgresDbClient"/> class.
@@ -52,8 +35,9 @@ internal sealed class PostgresDbClient
         config.Validate();
         this._log = (loggerFactory ?? DefaultLogger.Factory).CreateLogger<PostgresDbClient>();
 
-        this._dataSourceBuilder = new(config.ConnectionString);
-        this._dataSourceBuilder.UseVector();
+        NpgsqlDataSourceBuilder dataSourceBuilder = new(config.ConnectionString);
+        dataSourceBuilder.UseVector();
+        this._dataSource = dataSourceBuilder.Build();
 
         this._dbNamePresent = config.ConnectionString.Contains("Database=", StringComparison.OrdinalIgnoreCase);
         this._schema = config.Schema;
@@ -106,13 +90,13 @@ internal sealed class PostgresDbClient
                 {
 #pragma warning disable CA2100 // SQL reviewed
                     cmd.CommandText = $@"
-                SELECT table_name
-                FROM information_schema.tables
-                    WHERE table_schema = @schema
-                        AND table_name = @table
-                        AND table_type = 'BASE TABLE'
-                LIMIT 1
-            ";
+                        SELECT table_name
+                        FROM information_schema.tables
+                            WHERE table_schema = @schema
+                                AND table_name = @table
+                                AND table_type = 'BASE TABLE'
+                        LIMIT 1
+                    ";
 
                     cmd.Parameters.AddWithValue("@schema", this._schema);
                     cmd.Parameters.AddWithValue("@table", tableName);
@@ -182,17 +166,18 @@ internal sealed class PostgresDbClient
                     else
                     {
                         cmd.CommandText = $@"
-                    BEGIN;
-                    SELECT pg_advisory_xact_lock({lockId});
-                    CREATE TABLE IF NOT EXISTS {tableName} (
-                        {this._colId}        TEXT NOT NULL PRIMARY KEY,
-                        {this._colEmbedding} vector({vectorSize}),
-                        {this._colTags}      TEXT[] DEFAULT '{{}}'::TEXT[] NOT NULL,
-                        {this._colContent}   TEXT DEFAULT '' NOT NULL,
-                        {this._colPayload}   JSONB DEFAULT '{{}}'::JSONB NOT NULL
-                    );
-                    CREATE INDEX IF NOT EXISTS idx_tags ON {tableName} USING GIN({this._colTags});
-                    COMMIT;";
+                            BEGIN;
+                            SELECT pg_advisory_xact_lock({lockId});
+                            CREATE TABLE IF NOT EXISTS {tableName} (
+                                {this._colId}        TEXT NOT NULL PRIMARY KEY,
+                                {this._colEmbedding} vector({vectorSize}),
+                                {this._colTags}      TEXT[] DEFAULT '{{}}'::TEXT[] NOT NULL,
+                                {this._colContent}   TEXT DEFAULT '' NOT NULL,
+                                {this._colPayload}   JSONB DEFAULT '{{}}'::JSONB NOT NULL
+                            );
+                            CREATE INDEX IF NOT EXISTS idx_tags ON {tableName} USING GIN({this._colTags});
+                            COMMIT;
+                        ";
 #pragma warning restore CA2100
 
                         this._log.LogTrace("Creating table with default SQL: {0}", cmd.CommandText);
@@ -360,17 +345,17 @@ internal sealed class PostgresDbClient
                 {
 #pragma warning disable CA2100 // SQL reviewed
                     cmd.CommandText = $@"
-                INSERT INTO {tableName}
-                    ({this._colId}, {this._colEmbedding}, {this._colTags}, {this._colContent}, {this._colPayload})
-                    VALUES
-                    (@id, @embedding, @tags, @content, @payload)
-                ON CONFLICT ({this._colId})
-                DO UPDATE SET
-                    {this._colEmbedding} = @embedding,
-                    {this._colTags}      = @tags,
-                    {this._colContent}   = @content,
-                    {this._colPayload}   = @payload
-            ";
+                        INSERT INTO {tableName}
+                            ({this._colId}, {this._colEmbedding}, {this._colTags}, {this._colContent}, {this._colPayload})
+                            VALUES
+                            (@id, @embedding, @tags, @content, @payload)
+                        ON CONFLICT ({this._colId})
+                        DO UPDATE SET
+                            {this._colEmbedding} = @embedding,
+                            {this._colTags}      = @tags,
+                            {this._colContent}   = @content,
+                            {this._colPayload}   = @payload
+                    ";
 
                     cmd.Parameters.AddWithValue("@id", record.Id);
                     cmd.Parameters.AddWithValue("@embedding", record.Embedding);
@@ -458,13 +443,13 @@ internal sealed class PostgresDbClient
                     // When using 1 - (embedding <=> target) the index is not being used, therefore we calculate
                     // the similarity (1 - distance) later. Furthermore, colDistance can't be used in the WHERE clause.
                     cmd.CommandText = @$"
-                SELECT {columns}, {this._colEmbedding} <=> @embedding AS {colDistance}
-                FROM {tableName}
-                WHERE {filterSql}
-                ORDER BY {colDistance} ASC
-                LIMIT @limit
-                OFFSET @offset
-            ";
+                        SELECT {columns}, {this._colEmbedding} <=> @embedding AS {colDistance}
+                        FROM {tableName}
+                        WHERE {filterSql}
+                        ORDER BY {colDistance} ASC
+                        LIMIT @limit
+                        OFFSET @offset
+                    ";
 
                     cmd.Parameters.AddWithValue("@embedding", target);
                     cmd.Parameters.AddWithValue("@maxDistance", maxDistance);
@@ -563,12 +548,12 @@ internal sealed class PostgresDbClient
                 {
 #pragma warning disable CA2100 // SQL reviewed
                     cmd.CommandText = @$"
-                SELECT {columns} FROM {tableName}
-                WHERE {filterSql}
-                ORDER BY {orderBySql}
-                LIMIT @limit
-                OFFSET @offset
-            ";
+                        SELECT {columns} FROM {tableName}
+                        WHERE {filterSql}
+                        ORDER BY {orderBySql}
+                        LIMIT @limit
+                        OFFSET @offset
+                    ";
 
                     cmd.Parameters.AddWithValue("@limit", limit);
                     cmd.Parameters.AddWithValue("@offset", offset);
@@ -658,20 +643,54 @@ internal sealed class PostgresDbClient
         }
     }
 
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        this._dataSource?.Dispose();
+    }
+
+    /// <inheritdoc/>
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await this._dataSource.DisposeAsync().ConfigureAwait(false);
+        }
+        catch (NullReferenceException)
+        {
+            // ignore
+        }
+    }
+
+    #region private ================================================================================
+
+    // See: https://www.postgresql.org/docs/current/errcodes-appendix.html
+    private const string PgErrUndefinedTable = "42P01"; // undefined_table
+    private const string PgErrUniqueViolation = "23505"; // unique_violation
+    private const string PgErrTypeDoesNotExist = "42704"; // undefined_object
+    private const string PgErrDatabaseDoesNotExist = "3D000"; // invalid_catalog_name
+
+    private readonly string _schema;
+    private readonly string _tableNamePrefix;
+    private readonly string _createTableSql;
+    private readonly string _colId;
+    private readonly string _colEmbedding;
+    private readonly string _colTags;
+    private readonly string _colContent;
+    private readonly string _colPayload;
+    private readonly string _columnsListNoEmbeddings;
+    private readonly string _columnsListWithEmbeddings;
+    private readonly bool _dbNamePresent;
+
     /// <summary>
     /// Try to connect to PG, handling exceptions in case the DB doesn't exist
     /// </summary>
     /// <param name="cancellationToken"></param>
-    /// <returns></returns>
     private async Task<NpgsqlConnection> ConnectAsync(CancellationToken cancellationToken = default)
     {
         try
         {
-            var dataSource = this._dataSourceBuilder.Build();
-            await using (dataSource.ConfigureAwait(false))
-            {
-                return await dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
-            }
+            return await this._dataSource.OpenConnectionAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (Npgsql.PostgresException e) when (IsDbNotFoundException(e))
         {
@@ -764,4 +783,6 @@ internal sealed class PostgresDbClient
         return BitConverter.ToUInt32(SHA256.HashData(Encoding.UTF8.GetBytes(resourceId)), 0)
                % short.MaxValue;
     }
+
+    #endregion
 }
